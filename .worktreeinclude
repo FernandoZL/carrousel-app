@@ -1,0 +1,7 @@
+# Archivos locales que Git ignora y que Orca copia a cada copia de trabajo nueva.
+server/config/local.php
+server/config/test.php
+server/vendor
+server/storage
+android/local.properties
+android/keystore.properties
