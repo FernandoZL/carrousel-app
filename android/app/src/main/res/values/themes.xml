@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Tema base sin barra; los colores de la interfaz (Ecosistema Carrousel) están en ui/Theme.kt. -->
+    <style name="Theme.Carrousel" parent="android:Theme.Material.Light.NoActionBar">
+        <item name="android:windowBackground">#EEF2F7</item>
+    </style>
+</resources>

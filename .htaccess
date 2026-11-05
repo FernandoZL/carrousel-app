@@ -1,0 +1,15 @@
+Options -Indexes
+DirectoryIndex index.php
+RewriteEngine On
+# Rutas públicas: la API de la app, la API del panel y el panel del personal.
+RewriteRule ^api\.php$ server/public/api.php [L]
+RewriteRule ^staff-api\.php$ server/public/staff-api.php [L]
+RewriteRule ^admin/?$ server/public/admin/index.html [L]
+RewriteRule ^admin/(admin\.js|admin\.css|logo-carrousel\.png)$ server/public/admin/$1 [L]
+# Todo lo demás (código, configuración, base, app Android) no se sirve. REDIRECT_STATUS vacío: solo pedidos directos.
+RewriteCond %{ENV:REDIRECT_STATUS} ^$
+RewriteRule ^(?:server|android|\.git)(?:/|$) - [F,L,NC]
+RewriteRule ^(?:README\.md|\.gitignore)$ - [F,L,NC]
+<FilesMatch "^\.">
+ Require all denied
+</FilesMatch>

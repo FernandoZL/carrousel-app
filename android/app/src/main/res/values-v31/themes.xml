@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Pantalla de carga de Android 12+: fondo azul de marca con el ícono de la app. -->
+    <style name="Theme.Carrousel" parent="android:Theme.Material.Light.NoActionBar">
+        <item name="android:windowBackground">#EEF2F7</item>
+        <item name="android:windowSplashScreenBackground">#213A8F</item>
+        <item name="android:windowSplashScreenAnimatedIcon">@mipmap/ic_launcher</item>
+    </style>
+</resources>

@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'">
+  <meta name="referrer" content="no-referrer">
+  <title>Panel Carrousel App</title>
+  <link rel="icon" href="logo-carrousel.png" type="image/png">
+  <link rel="stylesheet" href="admin.css">
+</head>
+<body>
+  <header class="top">
+    <span class="brand"><img src="logo-carrousel.png" alt="Carrousel"> Personal</span>
+    <span id="who"></span>
+  </header>
+  <nav id="tabs" hidden></nav>
+  <main id="view"><p class="muted">Cargando…</p></main>
+  <div id="toast" role="status" aria-live="polite"></div>
+  <script src="admin.js"></script>
+</body>
+</html>

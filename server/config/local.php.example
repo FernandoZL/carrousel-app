@@ -1,0 +1,20 @@
+<?php
+// Copia este archivo como config/local.php (no se sube a Git) y completa los valores.
+return [
+    'db_host'=>'127.0.0.1', 'db_port'=>3306, 'db_name'=>'carrousel_app',
+    'db_user'=>'carrousel_app', 'db_pass'=>'',
+    // Hosts con los que se aceptan solicitudes. 10.0.2.2 es tu PC vista desde el emulador de Android; agrega la IP
+    // de tu PC en la red local para probar con un celular, y el dominio real en producción.
+    // En el servidor de producción: ['portal.carrousel-apps.com'].
+    'allowed_hosts'=>['localhost','127.0.0.1','10.0.2.2'],
+    // Proxy local de confianza (túnel de Cloudflare). Solo desde estas IP se acepta CF-Connecting-IP y X-Forwarded-Proto.
+    'trusted_proxies'=>['127.0.0.1','::1'],
+    'timezone'=>'America/Guatemala',
+    // Clave aleatoria de 64 caracteres: bin/install.php la genera si dejas este texto.
+    'app_key'=>'GENERAR',
+    // Correo SMTP para los códigos de acceso.
+    'smtp_host'=>'', 'smtp_port'=>587, 'smtp_secure'=>'tls', 'smtp_username'=>'', 'smtp_password'=>'',
+    'mail_from'=>'', 'mail_from_name'=>'Carrousel',
+    // Solo desarrollo: sin SMTP, el código se escribe en storage/dev-outbox.json en vez de enviarse. Nunca en producción.
+    'dev_outbox'=>false,
+];

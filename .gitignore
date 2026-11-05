@@ -1,0 +1,14 @@
+server/config/local.php
+server/config/test.php
+server/vendor/
+server/storage/
+android/.gradle/
+android/build/
+android/app/build/
+android/local.properties
+android/.idea/
+android/*.iml
+android/app/release/
+*.keystore
+*.jks
+android/keystore.properties
