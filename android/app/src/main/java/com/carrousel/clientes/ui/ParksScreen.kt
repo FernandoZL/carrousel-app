@@ -6,15 +6,19 @@ import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.graphics.Canvas
+import android.graphics.Paint
+import android.graphics.Rect
+import android.graphics.drawable.BitmapDrawable
 import android.location.Location
 import android.location.LocationListener
 import android.location.LocationManager
 import android.net.Uri
 import android.os.Bundle
 import android.os.Looper
-import android.webkit.JavascriptInterface
-import android.webkit.WebView
-import android.webkit.WebViewClient
+import android.view.MotionEvent
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
@@ -60,6 +64,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -81,8 +86,12 @@ import androidx.core.content.ContextCompat
 import com.carrousel.clientes.R
 import com.carrousel.clientes.data.Event
 import com.carrousel.clientes.data.Park
-import org.json.JSONArray
-import org.json.JSONObject
+import org.osmdroid.config.Configuration
+import org.osmdroid.tileprovider.tilesource.TileSourceFactory
+import org.osmdroid.util.BoundingBox
+import org.osmdroid.util.GeoPoint
+import org.osmdroid.views.MapView
+import org.osmdroid.views.overlay.Marker
 import kotlin.math.roundToInt
 
 private enum class ParkFilter { ALL, PARKS, KIDDIES }
@@ -121,7 +130,53 @@ private fun fetchDeviceLocation(context: Context, onLocation: (Double, Double) -
     }
 }
 
-/** Pin de ubicación con el logo oficial de Carrousel. */
+/** Genera el marcador nativo de Android con el logo de Carrousel dentro de un pin circular. */
+private fun createCarrouselPinDrawable(context: Context, isKiddies: Boolean): BitmapDrawable {
+    val density = context.resources.displayMetrics.density
+    val size = (44f * density).roundToInt().coerceAtLeast(64)
+    val out = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
+    val canvas = Canvas(out)
+    val paint = Paint(Paint.ANTI_ALIAS_FLAG)
+    val cx = size / 2f
+    val cy = size / 2f
+    val r = size / 2f - 2f * density
+
+    // Sombra suave y borde de marca (azul Carrousel o naranja Kiddies)
+    paint.color = 0x33000000
+    canvas.drawCircle(cx, cy + 1.5f * density, r, paint)
+    paint.color = if (isKiddies) 0xFFF28B24.toInt() else 0xFF213A8F.toInt()
+    canvas.drawCircle(cx, cy, r, paint)
+    paint.color = android.graphics.Color.WHITE
+    canvas.drawCircle(cx, cy, r - 3f * density, paint)
+
+    // Dibuja el logo oficial centrado
+    val logo = BitmapFactory.decodeResource(context.resources, R.drawable.logo_carrousel)
+    if (logo != null) {
+        val pad = (size * 0.18f).roundToInt()
+        val dst = Rect(pad, (size * 0.24f).roundToInt(), size - pad, (size * 0.76f).roundToInt())
+        canvas.drawBitmap(logo, null, dst, Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG))
+    }
+    return BitmapDrawable(context.resources, out)
+}
+
+/** Pin para la ubicación actual del usuario en el mapa. */
+private fun createUserPinDrawable(context: Context): BitmapDrawable {
+    val density = context.resources.displayMetrics.density
+    val size = (24f * density).roundToInt().coerceAtLeast(36)
+    val out = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
+    val canvas = Canvas(out)
+    val paint = Paint(Paint.ANTI_ALIAS_FLAG)
+    val c = size / 2f
+    paint.color = 0x44213A8F
+    canvas.drawCircle(c, c, c, paint)
+    paint.color = android.graphics.Color.WHITE
+    canvas.drawCircle(c, c, c * 0.65f, paint)
+    paint.color = 0xFF213A8F.toInt()
+    canvas.drawCircle(c, c, c * 0.48f, paint)
+    return BitmapDrawable(context.resources, out)
+}
+
+/** Pin de ubicación con el logo oficial de Carrousel para las tarjetas de la lista. */
 @Composable
 private fun CarrouselLogoPin(isKiddies: Boolean, modifier: Modifier = Modifier) {
     val border = if (isKiddies) Orange else Brand
@@ -182,6 +237,7 @@ fun ParksScreen(parks: List<Park>, events: List<Event>, onOpen: (Park) -> Unit, 
     var query by rememberSaveable { mutableStateOf("") }
     var filter by rememberSaveable { mutableStateOf(ParkFilter.ALL) }
     var showMap by rememberSaveable { mutableStateOf(true) }
+    var selectedMapPark by remember { mutableStateOf<Park?>(null) }
     var userLat by rememberSaveable { mutableStateOf<Double?>(null) }
     var userLon by rememberSaveable { mutableStateOf<Double?>(null) }
     var hasLocationPermission by remember {
@@ -233,7 +289,7 @@ fun ParksScreen(parks: List<Park>, events: List<Event>, onOpen: (Park) -> Unit, 
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Text("Ubicaciones", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
                         OutlinedButton(
                             onClick = {
                                 if (hasLocationPermission) fetchDeviceLocation(context) { lat, lon -> userLat = lat; userLon = lon }
@@ -258,7 +314,12 @@ fun ParksScreen(parks: List<Park>, events: List<Event>, onOpen: (Park) -> Unit, 
                         parks = filtered,
                         userLat = userLat,
                         userLon = userLon,
-                        onSelectPark = { id -> parks.firstOrNull { it.id == id }?.let(onOpen) },
+                        selectedPark = selectedMapPark,
+                        onSelectPark = { p ->
+                            if (selectedMapPark?.id == p.id) onOpen(p)
+                            else selectedMapPark = p
+                        },
+                        onOpenSelected = { p -> onOpen(p) },
                     )
                 }
                 OutlinedTextField(
@@ -350,131 +411,129 @@ fun ParksScreen(parks: List<Park>, events: List<Event>, onOpen: (Park) -> Unit, 
     }
 }
 
-/** Mapa interactivo con marcadores del logo oficial de Carrousel y geolocalización del usuario. */
-@SuppressLint("SetJavaScriptEnabled")
+/** Mapa nativo integrado (OSMDroid) con pines del logo de Carrousel y ubicación del usuario. */
+@SuppressLint("ClickableViewAccessibility")
 @Composable
 private fun ParksMapCard(
     parks: List<Park>,
     userLat: Double?,
     userLon: Double?,
-    onSelectPark: (Int) -> Unit,
+    selectedPark: Park? = null,
+    onSelectPark: (Park) -> Unit = {},
+    onOpenSelected: (Park) -> Unit = {},
 ) {
     val context = LocalContext.current
-    val logoDataUri = remember {
-        runCatching {
-            val bmp = android.graphics.BitmapFactory.decodeResource(context.resources, R.drawable.logo_carrousel)
-            val scaled = android.graphics.Bitmap.createScaledBitmap(bmp, 96, 64, true)
-            val out = java.io.ByteArrayOutputStream()
-            scaled.compress(android.graphics.Bitmap.CompressFormat.PNG, 90, out)
-            "data:image/png;base64," + android.util.Base64.encodeToString(out.toByteArray(), android.util.Base64.NO_WRAP)
-        }.getOrDefault("")
-    }
-    val markersJson = remember(parks) {
-        val arr = JSONArray()
-        parks.forEach { p ->
-            val lat = p.effectiveLat ?: return@forEach
-            val lon = p.effectiveLon ?: return@forEach
-            arr.put(
-                JSONObject()
-                    .put("id", p.id)
-                    .put("name", p.name)
-                    .put("address", p.address)
-                    .put("kiddies", p.isKiddies)
-                    .put("lat", lat)
-                    .put("lon", lon)
-            )
+    val parkIcon = remember { createCarrouselPinDrawable(context, isKiddies = false) }
+    val kiddiesIcon = remember { createCarrouselPinDrawable(context, isKiddies = true) }
+    val userIcon = remember { createUserPinDrawable(context) }
+
+    val mapView = remember {
+        Configuration.getInstance().userAgentValue = context.packageName
+        MapView(context).apply {
+            setTileSource(TileSourceFactory.MAPNIK)
+            setMultiTouchControls(true)
+            controller.setZoom(8.2)
+            controller.setCenter(GeoPoint(14.62, -90.53))
+            // Permite arrastrar el mapa cómodamente dentro del LazyColumn
+            setOnTouchListener { v, event ->
+                when (event.action) {
+                    MotionEvent.ACTION_DOWN, MotionEvent.ACTION_MOVE -> v.parent?.requestDisallowInterceptTouchEvent(true)
+                    MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> v.parent?.requestDisallowInterceptTouchEvent(false)
+                }
+                false
+            }
         }
-        arr.toString()
     }
+
+    DisposableEffect(mapView) {
+        mapView.onResume()
+        onDispose { mapView.onPause() }
+    }
+
+    val signature = remember(parks, userLat, userLon) {
+        parks.joinToString(",") { "${it.id}:${it.effectiveLat}:${it.effectiveLon}" } + "|$userLat:$userLon"
+    }
+
     Card(
-        Modifier.fillMaxWidth().height(250.dp),
+        Modifier.fillMaxWidth(),
         shape = MaterialTheme.shapes.medium,
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
     ) {
-        AndroidView(
-            modifier = Modifier.fillMaxSize(),
-            factory = { ctx ->
-                WebView(ctx).apply {
-                    settings.javaScriptEnabled = true
-                    settings.domStorageEnabled = true
-                    webViewClient = WebViewClient()
-                    addJavascriptInterface(object {
-                        @JavascriptInterface
-                        fun openPark(id: Int) {
-                            post { onSelectPark(id) }
+        Column {
+            Box(Modifier.fillMaxWidth().height(260.dp)) {
+                AndroidView(
+                    modifier = Modifier.fillMaxSize(),
+                    factory = { mapView },
+                    update = { map ->
+                        if (map.tag != signature) {
+                            map.tag = signature
+                            map.overlays.clear()
+                            val points = mutableListOf<GeoPoint>()
+                            parks.forEach { p ->
+                                val lat = p.effectiveLat ?: return@forEach
+                                val lon = p.effectiveLon ?: return@forEach
+                                val pt = GeoPoint(lat, lon)
+                                points.add(pt)
+                                val marker = Marker(map).apply {
+                                    position = pt
+                                    title = p.name
+                                    snippet = p.address
+                                    icon = if (p.isKiddies) kiddiesIcon else parkIcon
+                                    setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER)
+                                    setOnMarkerClickListener { _, _ ->
+                                        onSelectPark(p)
+                                        map.controller.animateTo(pt)
+                                        true
+                                    }
+                                }
+                                map.overlays.add(marker)
+                            }
+                            if (userLat != null && userLon != null) {
+                                val uPt = GeoPoint(userLat, userLon)
+                                val uMarker = Marker(map).apply {
+                                    position = uPt
+                                    title = "Tu ubicación"
+                                    icon = userIcon
+                                    setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER)
+                                }
+                                map.overlays.add(uMarker)
+                                map.controller.setZoom(12.5)
+                                map.controller.setCenter(uPt)
+                            } else if (points.size == 1) {
+                                map.controller.setZoom(15.5)
+                                map.controller.setCenter(points[0])
+                            } else if (points.size > 1) {
+                                map.post {
+                                    runCatching {
+                                        map.zoomToBoundingBox(BoundingBox.fromGeoPoints(points), true, 48)
+                                    }
+                                }
+                            }
+                            map.invalidate()
                         }
-                    }, "CarrouselBridge")
-                }
-            },
-            update = { webView ->
-                val uLat = userLat?.toString() ?: "null"
-                val uLon = userLon?.toString() ?: "null"
-                val html = """
-                    <!doctype html>
-                    <html>
-                    <head>
-                      <meta charset="utf-8">
-                      <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
-                      <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
-                      <style>
-                        html,body,#map{margin:0;padding:0;width:100%;height:100%;font-family:system-ui,sans-serif;background:#e4eaf5}
-                        .c-pin{width:40px;height:40px;border-radius:50%;background:#fff;border:3px solid #213a8f;box-shadow:0 3px 8px rgba(16,24,40,.32);display:flex;align-items:center;justify-content:center;overflow:hidden;position:relative}
-                        .c-pin.kiddies{border-color:#f28b24}
-                        .c-pin img{width:32px;height:32px;object-fit:contain}
-                        .u-pin{width:16px;height:16px;border-radius:50%;background:#213a8f;border:3px solid #fff;box-shadow:0 0 0 4px rgba(33,58,143,.28)}
-                        .pop-btn{margin-top:6px;padding:5px 10px;border:0;border-radius:6px;background:#213a8f;color:#fff;font-weight:700;font-size:12px;cursor:pointer;width:100%}
-                      </style>
-                    </head>
-                    <body>
-                      <div id="map"></div>
-                      <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-                      <script>
-                        const parks = $markersJson;
-                        const uLat = $uLat, uLon = $uLon;
-                        const map = L.map('map', { zoomControl: true, attributionControl: false }).setView([14.62, -90.53], 8);
-                        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 18 }).addTo(map);
-                        const bounds = [];
-                        parks.forEach(p => {
-                          const icon = L.divIcon({
-                            className: '',
-                            html: '<div class="c-pin ' + (p.kiddies ? 'kiddies' : '') + '"><img src="$logoDataUri" alt="Carrousel"></div>',
-                            iconSize: [40, 40],
-                            iconAnchor: [20, 20],
-                            popupAnchor: [0, -18]
-                          });
-                          const m = L.marker([p.lat, p.lon], { icon }).addTo(map);
-                          const div = document.createElement('div');
-                          const b = document.createElement('strong');
-                          b.textContent = p.name;
-                          div.appendChild(b);
-                          const btn = document.createElement('button');
-                          btn.className = 'pop-btn';
-                          btn.textContent = 'Ver parque';
-                          btn.onclick = () => window.CarrouselBridge.openPark(p.id);
-                          div.appendChild(btn);
-                          m.bindPopup(div);
-                          bounds.push([p.lat, p.lon]);
-                        });
-                        if (uLat !== null && uLon !== null) {
-                          const uIcon = L.divIcon({ className: '', html: '<div class="u-pin"></div>', iconSize: [16, 16], iconAnchor: [8, 8] });
-                          L.marker([uLat, uLon], { icon: uIcon }).addTo(map).bindPopup('Tu ubicación');
-                          map.setView([uLat, uLon], 12);
-                        } else if (bounds.length === 1) {
-                          map.setView(bounds[0], 14);
-                        } else if (bounds.length > 1) {
-                          map.fitBounds(bounds, { padding: [24, 24], maxZoom: 12 });
+                    },
+                )
+            }
+            if (selectedPark != null) {
+                Row(
+                    Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surface).clickable { onOpenSelected(selectedPark) }.padding(12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    CarrouselLogoPin(isKiddies = selectedPark.isKiddies, modifier = Modifier.size(38.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text(selectedPark.name, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyLarge)
+                        if (selectedPark.address.isNotBlank()) {
+                            Text(selectedPark.address, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
                         }
-                      </script>
-                    </body>
-                    </html>
-                """.trimIndent()
-                if (webView.tag != html) {
-                    webView.tag = html
-                    webView.loadDataWithBaseURL("https://localhost/", html, "text/html", "UTF-8", null)
+                    }
+                    Button(onClick = { onOpenSelected(selectedPark) }, contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)) {
+                        Text("Ver parque", style = MaterialTheme.typography.labelLarge)
+                    }
                 }
-            },
-        )
+            }
+        }
     }
 }
 
@@ -538,7 +597,6 @@ fun ParkDetail(p: Park, events: List<Event>, padding: PaddingValues) {
             parks = listOf(p),
             userLat = null,
             userLon = null,
-            onSelectPark = {},
         )
         val here = events.filter { it.parkId == null || it.parkId == p.id }
         if (here.isNotEmpty()) {
