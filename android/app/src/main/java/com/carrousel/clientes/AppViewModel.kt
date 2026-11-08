@@ -56,6 +56,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun consumeMessage() { message = null }
+    fun notify(text: String) { message = text }
     fun finishOnboarding() { session.onboarded = true; onboarded = true }
 
     /** Ejecuta una llamada mostrando el progreso; un 401 cierra la sesión local. */

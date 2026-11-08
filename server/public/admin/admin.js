@@ -52,6 +52,7 @@
   const allowed = () => SECTIONS.filter(s => s.role === 'cajero' || me.role === 'admin');
 
   async function render() {
+    stopScanner();
     if (!me) { tabs.hidden = true; who.innerHTML = ''; return renderLogin(); }
     const list = allowed();
     const current = list.find(s => '#' + s.id === location.hash) || list[0];
@@ -81,10 +82,22 @@
       <div class="actions">${canRedeem ? '<button id="confirm">Confirmar canje</button>' : ''}
       ${me.role === 'admin' && !c.redeemed_at && c.status !== 'void' ? '<button class="danger" id="void">Anular</button>' : ''}</div></div>`;
   }
+  let scanStream = null;
+  function stopScanner() {
+    if (scanStream) { scanStream.getTracks().forEach(t => t.stop()); scanStream = null; }
+    const box = document.getElementById('scanner-box');
+    if (box) box.hidden = true;
+    const btn = document.getElementById('scan-btn');
+    if (btn) btn.textContent = 'Escanear QR';
+  }
   function renderRedeem() {
-    view.innerHTML = `<form class="card" id="find"><h1>Canjear cupón</h1><p class="muted">Escribe el código de 6 caracteres que el cliente muestra en la app.</p>
-      ${field('Código', 'code', '', 'required maxlength="6" autocomplete="off" autocapitalize="characters" style="text-transform:uppercase"')}<button>Consultar</button></form><div id="result"></div>`;
+    stopScanner();
+    view.innerHTML = `<form class="card" id="find"><h1>Canjear cupón</h1><p class="muted">Escribe el código de 6 caracteres o escanea el código QR que el cliente muestra en la app.</p>
+      ${field('Código', 'code', '', 'required maxlength="6" autocomplete="off" autocapitalize="characters" style="text-transform:uppercase"')}
+      <div class="actions"><button>Consultar</button><button type="button" class="secondary" id="scan-btn">Escanear QR</button></div>
+      <div id="scanner-box" class="scanner" hidden><video id="scanner-video" playsinline muted></video><div class="scanner-guide"></div></div></form><div id="result"></div>`;
     const result = document.getElementById('result');
+    const form = document.getElementById('find');
     const show = c => {
       result.innerHTML = couponCard(c);
       const confirm = document.getElementById('confirm');
@@ -99,19 +112,64 @@
         try { show(await api('void', { code: c.code, reason })); toast('Cupón anulado.'); } catch (e) { toast(e.message, true); }
       };
     };
-    document.getElementById('find').onsubmit = async ev => {
-      ev.preventDefault(); result.innerHTML = '';
-      try { show(await api('lookup', null, { code: ev.target.code.value.trim().toUpperCase() })); } catch (e) { toast(e.message, true); }
+    const lookupCode = async raw => {
+      const clean = String(raw || '').trim().toUpperCase();
+      form.code.value = clean;
+      result.innerHTML = '';
+      try { show(await api('lookup', null, { code: clean })); } catch (e) { toast(e.message, true); }
+    };
+    form.onsubmit = async ev => {
+      ev.preventDefault();
+      stopScanner();
+      await lookupCode(form.code.value);
+    };
+    document.getElementById('scan-btn').onclick = async () => {
+      if (scanStream) { stopScanner(); return; }
+      if (!('BarcodeDetector' in window) || !navigator.mediaDevices?.getUserMedia) {
+        toast('Este navegador no incluye lector QR directo; escribe el código de 6 caracteres.', true);
+        return;
+      }
+      try {
+        const detector = new window.BarcodeDetector({ formats: ['qr_code'] });
+        scanStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' }, audio: false });
+        const video = document.getElementById('scanner-video');
+        const box = document.getElementById('scanner-box');
+        video.srcObject = scanStream;
+        box.hidden = false;
+        document.getElementById('scan-btn').textContent = 'Detener cámara';
+        await video.play();
+        const tick = async () => {
+          if (!scanStream) return;
+          try {
+            const codes = await detector.detect(video);
+            const match = codes.map(b => String(b.rawValue || '').trim().toUpperCase()).find(v => /^[A-Z0-9]{6}$/.test(v));
+            if (match) { stopScanner(); await lookupCode(match); return; }
+          } catch (_) { }
+          if (scanStream) requestAnimationFrame(tick);
+        };
+        requestAnimationFrame(tick);
+      } catch (_) {
+        stopScanner();
+        toast('No se pudo abrir la cámara. Revisa el permiso del navegador.', true);
+      }
     };
   }
 
   async function renderCrud(listAction, saveAction, title, form, row, headers) {
     const items = listAction === 'parks' ? parks : await api(listAction);
+    let q = '';
     const draw = (item = {}) => {
-      view.innerHTML = `<div class="card"><h1>${esc(title)}</h1><div class="table-wrap"><table><thead><tr>${headers.map(h => `<th>${esc(h)}</th>`).join('')}<th></th></tr></thead><tbody>
-        ${items.map(i => `<tr>${row(i).map(c => `<td>${c}</td>`).join('')}<td><button class="secondary" data-edit="${i.id}">Editar</button></td></tr>`).join('') || `<tr><td colspan="${headers.length + 1}" class="muted">Todavía no hay registros.</td></tr>`}
+      const norm = v => String(v ?? '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+      const filtered = q ? items.filter(i => norm(JSON.stringify(i)).includes(norm(q))) : items;
+      view.innerHTML = `<div class="card"><div class="toolbar"><h1>${esc(title)} (${filtered.length})</h1>${items.length > 5 ? `<input type="search" id="crud-search" placeholder="Filtrar…" value="${esc(q)}">` : ''}</div><div class="table-wrap"><table><thead><tr>${headers.map(h => `<th>${esc(h)}</th>`).join('')}<th></th></tr></thead><tbody>
+        ${filtered.map(i => `<tr>${row(i).map(c => `<td>${c}</td>`).join('')}<td><button class="secondary" data-edit="${i.id}">Editar</button></td></tr>`).join('') || `<tr><td colspan="${headers.length + 1}" class="muted">No hay registros que coincidan.</td></tr>`}
         </tbody></table></div></div><form class="card" id="editor"><h2>${item.id ? 'Editar' : 'Nuevo'}</h2><input type="hidden" name="id" value="${esc(item.id || '')}">${form(item)}
         <div class="actions"><button>Guardar</button>${item.id ? '<button type="button" class="secondary" id="new">Nuevo</button>' : ''}</div></form>`;
+      const search = document.getElementById('crud-search');
+      if (search) {
+        search.focus(); search.setSelectionRange(q.length, q.length);
+        search.oninput = ev => { q = ev.target.value; draw(item); };
+      }
       view.querySelectorAll('[data-edit]').forEach(b => { b.onclick = () => { draw(items.find(i => String(i.id) === b.dataset.edit)); document.getElementById('editor').scrollIntoView(); }; });
       const fresh = document.getElementById('new'); if (fresh) fresh.onclick = () => draw();
       document.getElementById('editor').onsubmit = async ev => {

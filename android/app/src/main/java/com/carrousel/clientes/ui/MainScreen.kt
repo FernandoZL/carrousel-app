@@ -94,12 +94,13 @@ fun MainScreen(vm: AppViewModel, snackbar: SnackbarHostState) {
                     if (vm.busy) CircularProgressIndicator()
                     else androidx.compose.material3.TextButton(onClick = { vm.refresh() }) { Text("Reintentar") }
                 }
-                coupon != null -> CouponDetail(coupon, padding)
+                coupon != null -> CouponDetail(coupon, onCopied = { vm.notify("Código copiado.") }, padding = padding)
                 park != null -> ParkDetail(park, vm.events, padding)
                 else -> when (tab) {
                     Tab.COUPONS -> CouponsScreen(
                         vm.coupons, hasMembers = vm.profile?.members?.isNotEmpty() == true,
-                        onOpen = { couponCode = it.code }, onAddMembers = { tab = Tab.PROFILE }, padding = padding,
+                        onOpen = { couponCode = it.code }, onAddMembers = { tab = Tab.PROFILE },
+                        onGoOffers = { tab = Tab.OFFERS }, padding = padding,
                     )
                     Tab.OFFERS -> OffersScreen(
                         vm.offers, vm.busy, onClaim = { o -> vm.claim(o) { couponCode = it.code } },

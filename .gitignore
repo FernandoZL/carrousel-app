@@ -3,6 +3,7 @@ server/config/test.php
 server/vendor/
 server/storage/
 android/.gradle/
+android/.kotlin/
 android/build/
 android/app/build/
 android/local.properties

@@ -44,7 +44,7 @@ final class Staff
         $email=Core::email($email);Core::throttle($this->db,$this->c,'staff-login-ip:'.$ip,30,900);Core::throttle($this->db,$this->c,'staff-login:'.$email,8,900);
         $q=$this->db->prepare('SELECT id,password_hash FROM staff WHERE email=? AND active=1');$q->execute([$email]);$row=$q->fetch();
         // El mismo mensaje para correo desconocido y contraseña incorrecta; se verifica un hash ficticio para igualar tiempos.
-        static $dummy=null;$dummy??=password_hash(random_bytes(16),PASSWORD_DEFAULT);
+        static $dummy=null;$dummy??=password_hash(bin2hex(random_bytes(16)),PASSWORD_DEFAULT);
         if(!password_verify((string)$password,$row['password_hash']??$dummy)||!$row)throw new DomainException('Correo o contraseña incorrectos.',401);
         $s=$this->find((int)$row['id']);session_regenerate_id(true);$_SESSION['staff_id']=$s['id'];$_SESSION['auth_version']=$s['auth_version'];$_SESSION['csrf']=bin2hex(random_bytes(32));
         Core::audit($this->db,'staff',$s['id'],'STAFF_LOGIN','staff',$s['id']);

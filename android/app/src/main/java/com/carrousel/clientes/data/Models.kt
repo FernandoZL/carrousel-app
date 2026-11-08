@@ -82,7 +82,47 @@ data class Park(
     val latitude: Double?,
     val longitude: Double?,
 ) {
+    val isKiddies get() = name.startsWith("Kiddies", ignoreCase = true)
+
+    /** Coordenadas del parque (usa las de la base o la referencia conocida en Guatemala si aún no se cargaron). */
+    val effectiveLat: Double? get() = latitude ?: defaultCoords[name]?.first
+    val effectiveLon: Double? get() = longitude ?: defaultCoords[name]?.second
+
     companion object {
+        private val defaultCoords = mapOf(
+            "Alturas" to (15.3197 to -91.4724),
+            "Andaria Chimaltenango" to (14.6592 to -90.8128),
+            "Cayalá" to (14.6098 to -90.4864),
+            "Celajes" to (15.0258 to -91.1485),
+            "Centro Comercial Florida" to (14.6475 to -90.5694),
+            "El Frutal" to (14.5186 to -90.5732),
+            "El Gran Carchá" to (15.4754 to -90.3115),
+            "Interplaza Escuintla" to (14.3168 to -90.7836),
+            "Interplaza Xela" to (14.8631 to -91.5472),
+            "Kiddies Centra Norte" to (14.6612 to -90.4538),
+            "Kiddies Megacentro" to (14.6258 to -90.5624),
+            "Kiddies Pradera Palín" to (14.4052 to -90.6968),
+            "La Trinidad Coatepeque" to (14.7024 to -91.8632),
+            "La Trinidad Reu" to (14.5362 to -91.6778),
+            "Los Altos" to (14.9122 to -91.3612),
+            "Metrocentro" to (14.5256 to -90.5882),
+            "Metroplaza Jutiapa" to (14.2825 to -89.8924),
+            "Plaza Américas" to (14.5328 to -91.5086),
+            "Plaza Magdalena" to (15.4692 to -90.3768),
+            "Plaza San Francisco" to (14.6345 to -89.9852),
+            "Pradera Chimaltenango" to (14.6614 to -90.8195),
+            "Pradera Chiquimula" to (14.7924 to -89.5442),
+            "Pradera Escuintla" to (14.3012 to -90.7858),
+            "Pradera Huehuetenango" to (15.3145 to -91.4945),
+            "Pradera Puerto Barrios" to (15.7154 to -88.5872),
+            "Pradera Zacapa" to (14.9722 to -89.5278),
+            "Santa Clara" to (14.5284 to -90.5945),
+            "Santalu" to (14.3312 to -91.0254),
+            "Telares" to (14.5478 to -90.7385),
+            "Tikal" to (14.6231 to -90.5532),
+            "Vistares" to (14.5812 to -90.5495),
+        )
+
         fun from(o: JSONObject) = Park(
             id = o.getInt("id"), name = o.getString("name"), address = o.optString("address"), hours = o.optString("hours"),
             phone = o.optString("phone"), latitude = o.dbl("latitude"), longitude = o.dbl("longitude"),
